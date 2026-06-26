@@ -19,7 +19,7 @@
 
 - **buddyctl.py**：每个 hook 触发时跑一下，纯标准库、瞬起瞬灭，把 `{会话id, 状态}` 发给后台守护进程。
 - **bridge.py**：后台单例守护进程（脱离终端，靠文件锁保证全局唯一），聚合各会话状态，通过 BLE 长连接写给 ESP32。
-- **懒启动**：第一个会话的 hook 会自动拉起守护进程，无需手动开服务。
+- **懒启动**：第一个会话的 hook 会自动构建并经 `CC Bridge.app` 拉起守护进程（详见下文「macOS 蓝牙授权」），无需手动开服务。
 - **自动退出**：所有会话结束、持续 60 分钟无活动后，守护进程自动断开 BLE 并退出（时长见 `bridge/config.py` 的 `IDLE_EXIT`）。
 
 灯效配色写死在 ESP32 固件里；主机只发 1 字节状态码。
@@ -55,7 +55,12 @@ claude --plugin-dir "/path/to/cc_bridge"
 
 ## macOS 蓝牙授权
 
-首次运行守护进程时，macOS 会要求授予运行 Claude Code 的终端（Terminal / iTerm 等）**蓝牙权限**。若灯不亮，到「系统设置 → 隐私与安全性 → 蓝牙」里确认对应终端已勾选。
+macOS 下裸 Python 进程访问蓝牙会被系统隐私机制（TCC）直接终止且**不弹授权窗**，所以守护进程不直接跑 Python，而是装进一个声明了蓝牙用途、经签名的最小 `CC Bridge.app`（首次启动时自动构建于 `~/.cc-bridge/CCBridge.app`），由它经 LaunchServices 启动 bridge。
+
+- **首次**运行时，macOS 会弹窗请求授予 **CC Bridge** 蓝牙权限，点「允许」即可，授权后长期保留。
+- 授权归属到 CC Bridge.app，与你用哪个终端（Warp / iTerm / Terminal）无关。
+- 若灯不亮，到「系统设置 → 隐私与安全性 → 蓝牙」确认 **CC Bridge** 已勾选；`~/.cc-bridge/bridge.log` 出现「蓝牙未授权」即说明被拒。
+- 构建 `.app` 需 Xcode Command Line Tools（`xcode-select --install`，提供 `clang`/`codesign`）。
 
 ## ESP32 固件
 

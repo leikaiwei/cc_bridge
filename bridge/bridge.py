@@ -93,7 +93,13 @@ class BleManager:
                 await self._serve()
                 backoff = 1   # 正常断开(如对端重启)后快速重连
             except Exception as e:
-                logging.warning("BLE 异常: %s", e)
+                # 蓝牙未授权：提示去系统设置勾选 CC Bridge（理论上经 .app 启动会自动弹窗授权）
+                if "not authorized" in str(e).lower() or "unauthorized" in str(e).lower():
+                    logging.error(
+                        "蓝牙未授权。请到「系统设置 → 隐私与安全性 → 蓝牙」勾选 CC Bridge 后重试"
+                    )
+                else:
+                    logging.warning("BLE 异常: %s", e)
                 backoff = min(backoff * 2, 30)
             await asyncio.sleep(backoff)
 

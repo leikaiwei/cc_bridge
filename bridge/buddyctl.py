@@ -13,6 +13,7 @@
 import fcntl
 import json
 import os
+import shlex
 import shutil
 import socket
 import subprocess
@@ -69,9 +70,11 @@ def send(sid: str, state: str) -> bool:
 
 
 def spawn_bridge() -> None:
-    """detached 后台启动 bridge：先 uv sync 确保依赖就绪，再起 bridge.py。
+    """detached 后台拉起 bridge：uv sync → 构建 .app → open 启动。
 
-    用 spawn 锁避免多终端同时拉起；bridge 自身还有单例锁兜底。
+    必须经 .app 启动：裸 python 访问蓝牙会被 macOS TCC 直接 SIGABRT 杀掉且不弹窗，
+    只有声明了蓝牙用途、已签名的 .app 经 LaunchServices 启动才能拿到授权(详见 macapp.py)。
+    用 spawn 锁避免多终端并发拉起；bridge 自身还有单例锁兜底。
     """
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     lock = open(config.SPAWN_LOCK_PATH, "w")
@@ -80,10 +83,20 @@ def spawn_bridge() -> None:
     except OSError:
         return  # 已有别的 buddyctl 在拉起，让它来
 
-    # 一行 shell：先 uv sync(已同步时near-instant，避免半成品 venv 被误用)，再接管为 bridge.py
-    # uv 用绝对路径，避免 hook 子进程 PATH 不含它导致首次建 venv 失败
     uv = resolve_uv()
-    cmd = f'"{uv}" sync >/dev/null 2>&1; exec .venv/bin/python bridge.py'
+    py = os.path.join(BRIDGE_DIR, ".venv", "bin", "python")
+    app = str(config.APP_PATH)
+    # 一行 shell(后台、脱离终端)，路径含空格统一 shlex.quote：
+    #   1) uv sync 确保 venv 就绪(已同步时near-instant，避免半成品 venv 被误用)
+    #   2) 构建/更新承载蓝牙用途声明的 .app(幂等，内容未变即跳过)
+    #   3) open 经 LaunchServices 拉起 .app，把 python 路径与 bridge 目录传给 launcher
+    # uv 用绝对路径，避免 hook 子进程 PATH 不含它导致首次建 venv 失败
+    cmd = (
+        f"{shlex.quote(uv)} sync >/dev/null 2>&1; "
+        f"{shlex.quote(py)} macapp.py >/dev/null 2>&1; "
+        f"exec /usr/bin/open {shlex.quote(app)} --args "
+        f"{shlex.quote(py)} {shlex.quote(BRIDGE_DIR)}"
+    )
     logf = open(config.LOG_PATH, "a")
     subprocess.Popen(
         ["/bin/sh", "-c", cmd],

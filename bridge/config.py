@@ -11,6 +11,8 @@ SOCKET_PATH = DATA_DIR / "bridge.sock"
 LOCK_PATH = DATA_DIR / "bridge.lock"      # bridge 单例锁，守护进程整生命周期持有
 SPAWN_LOCK_PATH = DATA_DIR / "spawn.lock"  # buddyctl 启动锁，避免并发重复拉起
 LOG_PATH = DATA_DIR / "bridge.log"
+# 承载 bridge 的 .app（声明蓝牙用途）：经它启动才能拿到 BLE 的 TCC 授权，详见 macapp.py
+APP_PATH = DATA_DIR / "CCBridge.app"
 
 # 时长（秒）
 DONE_DECAY = 30 * 60    # done 状态多久衰减为 idle（与 SESSION_TTL 相等，到点一并清理）
