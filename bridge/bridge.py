@@ -13,13 +13,14 @@ import logging
 import os
 import sys
 import time
+from typing import Optional, TextIO
 
 import config
 import protocol
 from bleak import BleakClient, BleakScanner
 
 
-def setup_logging():
+def setup_logging() -> None:
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         filename=str(config.LOG_PATH),
@@ -28,7 +29,7 @@ def setup_logging():
     )
 
 
-def acquire_lock():
+def acquire_lock() -> Optional[TextIO]:
     """抢单例锁。抢不到说明已有 bridge 在跑，返回 None。"""
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     f = open(config.LOCK_PATH, "w")
@@ -44,11 +45,11 @@ def acquire_lock():
 class Sessions:
     """各会话状态表与聚合逻辑。时间一律用单调时钟。"""
 
-    def __init__(self):
-        self.table = {}            # session_id -> (状态码, 更新时刻)
+    def __init__(self) -> None:
+        self.table: dict[str, tuple[int, float]] = {}  # session_id -> (状态码, 更新时刻)
         self.last_report = time.monotonic()
 
-    def update(self, sid, state):
+    def update(self, sid: str, state: str) -> None:
         now = time.monotonic()
         self.last_report = now
         if state == protocol.STATE_END:   # 会话结束，移除
@@ -60,7 +61,7 @@ class Sessions:
             return
         self.table[sid] = (code, now)
 
-    def aggregate(self):
+    def aggregate(self) -> int:
         """清理僵尸会话，返回当前应显示的状态码(取最高优先级)。"""
         now = time.monotonic()
         for sid in list(self.table):
@@ -82,11 +83,11 @@ class Sessions:
 class BleManager:
     """维持与 ESP32 的 BLE 连接，target 变化时写入；断线自动退避重连。"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.target = protocol.STATE_IDLE
-        self._written = None
+        self._written: Optional[int] = None
 
-    async def run(self):
+    async def run(self) -> None:
         backoff = 1
         while True:
             try:
@@ -108,7 +109,7 @@ class BleManager:
             )
         return dev
 
-    async def _serve(self):
+    async def _serve(self) -> None:
         dev = await self._find_device()
         if dev is None:
             raise RuntimeError("未发现 ESP32 设备")
@@ -125,7 +126,9 @@ class BleManager:
                 await asyncio.sleep(0.2)
 
 
-async def handle_client(reader, writer, sessions):
+async def handle_client(
+    reader: asyncio.StreamReader, writer: asyncio.StreamWriter, sessions: Sessions
+) -> None:
     """处理一次上报：读一行 JSON {session_id, state}。"""
     try:
         line = await reader.readline()
@@ -138,7 +141,7 @@ async def handle_client(reader, writer, sessions):
         writer.close()
 
 
-async def ticker(sessions, ble):
+async def ticker(sessions: Sessions, ble: "BleManager") -> None:
     """主循环：刷新聚合目标；长时间无上报则自动退出。"""
     while True:
         ble.target = sessions.aggregate()
@@ -148,7 +151,7 @@ async def ticker(sessions, ble):
         await asyncio.sleep(config.TICK)
 
 
-async def main():
+async def main() -> None:
     sessions = Sessions()
     # 清掉残留 socket 文件后重新监听
     try:

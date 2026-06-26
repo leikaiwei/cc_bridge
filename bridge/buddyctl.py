@@ -13,6 +13,7 @@
 import fcntl
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -21,10 +22,28 @@ import time
 import config
 
 BRIDGE_DIR = os.path.dirname(os.path.abspath(__file__))
-VENV_PY = os.path.join(BRIDGE_DIR, ".venv", "bin", "python")
 
 
-def read_session_id():
+def resolve_uv() -> str:
+    """解析 uv 可执行文件的绝对路径。
+
+    hook 子进程的 PATH 不确定，不能假设 uv 在其中；优先 which，再查常见安装位置，
+    都找不到则退回裸名 'uv'(交给 venv 已存在的兜底路径)。
+    """
+    found = shutil.which("uv")
+    if found:
+        return found
+    for p in (
+        os.path.expanduser("~/.local/bin/uv"),
+        "/opt/homebrew/bin/uv",
+        "/usr/local/bin/uv",
+    ):
+        if os.path.exists(p):
+            return p
+    return "uv"
+
+
+def read_session_id() -> str:
     """从 hook 传入的 stdin JSON 取 session_id；取不到用 default。"""
     try:
         data = sys.stdin.read()
@@ -35,20 +54,22 @@ def read_session_id():
     return "default"
 
 
-def send(sid, state):
-    """连 bridge 的 socket 发一行 JSON。成功返回 True。"""
+def send(sid: str, state: str) -> bool:
+    """连 bridge 的 socket 发一行 JSON；连不上或出错返回 False（不抛异常）。"""
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.settimeout(config.CONNECT_TIMEOUT)
     try:
         s.connect(str(config.SOCKET_PATH))
         s.sendall((json.dumps({"session_id": sid, "state": state}) + "\n").encode())
         return True
+    except OSError:
+        return False
     finally:
         s.close()
 
 
-def spawn_bridge():
-    """detached 后台启动 bridge：venv 缺失则先 uv sync，再起 bridge.py。
+def spawn_bridge() -> None:
+    """detached 后台启动 bridge：先 uv sync 确保依赖就绪，再起 bridge.py。
 
     用 spawn 锁避免多终端同时拉起；bridge 自身还有单例锁兜底。
     """
@@ -59,8 +80,10 @@ def spawn_bridge():
     except OSError:
         return  # 已有别的 buddyctl 在拉起，让它来
 
-    # 一行 shell：venv 不存在就 uv sync，然后接管为 bridge.py
-    cmd = '[ -d .venv ] || uv sync >/dev/null 2>&1; exec .venv/bin/python bridge.py'
+    # 一行 shell：先 uv sync(已同步时near-instant，避免半成品 venv 被误用)，再接管为 bridge.py
+    # uv 用绝对路径，避免 hook 子进程 PATH 不含它导致首次建 venv 失败
+    uv = resolve_uv()
+    cmd = f'"{uv}" sync >/dev/null 2>&1; exec .venv/bin/python bridge.py'
     logf = open(config.LOG_PATH, "a")
     subprocess.Popen(
         ["/bin/sh", "-c", cmd],
@@ -74,22 +97,19 @@ def spawn_bridge():
     # 注意：不在此处释放 spawn 锁，进程退出时自动释放
 
 
-def main():
+def main() -> None:
     state = sys.argv[1] if len(sys.argv) > 1 else "idle"
     sid = read_session_id()
 
     if send(sid, state):
         return  # 常态：bridge 在跑，发完即退
 
-    # 连不上 → 懒启动 bridge，再做几次快速重试把当前状态送达
+    # 连不上 → 懒启动 bridge，再快速重试几次把当前状态送达
     spawn_bridge()
     for _ in range(3):
         time.sleep(0.3)
-        try:
-            if send(sid, state):
-                return
-        except Exception:
-            pass
+        if send(sid, state):
+            return
     # 仍失败也无妨：下个 hook 会在 bridge 起来后补上状态
 
 
