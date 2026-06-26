@@ -64,16 +64,15 @@ class Sessions:
     def aggregate(self) -> int:
         """清理僵尸会话，返回当前应显示的状态码(取最高优先级)。"""
         now = time.monotonic()
-        for sid in list(self.table):
-            _, ts = self.table[sid]
+        best = protocol.STATE_IDLE
+        for sid in list(self.table):   # list() 因为循环内会删表
+            code, ts = self.table[sid]
             if now - ts > config.SESSION_TTL:   # 超时未更新，剔除
                 del self.table[sid]
                 logging.info("清理僵尸会话: %s", sid)
-
-        best = protocol.STATE_IDLE
-        for code, ts in self.table.values():
-            eff = code
+                continue
             # done 显示数秒后衰减为空闲；error 不衰减(锁存到该会话下次上报)
+            eff = code
             if code == protocol.STATE_DONE and now - ts > config.DONE_DECAY:
                 eff = protocol.STATE_IDLE
             best = max(best, eff)
@@ -141,7 +140,7 @@ async def handle_client(
         writer.close()
 
 
-async def ticker(sessions: Sessions, ble: "BleManager") -> None:
+async def ticker(sessions: Sessions, ble: BleManager) -> None:
     """主循环：刷新聚合目标；长时间无上报则自动退出。"""
     while True:
         ble.target = sessions.aggregate()
