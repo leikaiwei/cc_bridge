@@ -5,10 +5,10 @@
 """
 
 # 状态码（= 优先级，越大越紧急）
-STATE_IDLE = 0     # 空闲：默认底色
-STATE_DONE = 1     # 完成：绿色
-STATE_WORKING = 2  # 工作中：蓝色呼吸
-STATE_CONFIRM = 3  # 需确认：琥珀闪烁
+STATE_IDLE = 0     # 空闲：暖白常亮
+STATE_DONE = 1     # 完成：绿色常亮
+STATE_WORKING = 2  # 工作中：Claude 橙色呼吸
+STATE_CONFIRM = 3  # 需确认：黄色闪烁
 STATE_ERROR = 4    # 报错：红色慢脉冲
 
 # 状态名 → 状态码（hook 上报用状态名）

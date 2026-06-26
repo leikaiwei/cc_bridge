@@ -13,7 +13,7 @@ SPAWN_LOCK_PATH = DATA_DIR / "spawn.lock"  # buddyctl 启动锁，避免并发�
 LOG_PATH = DATA_DIR / "bridge.log"
 
 # 时长（秒）
-DONE_DECAY = 5          # done 状态多久衰减为 idle
+DONE_DECAY = 30 * 60    # done 状态多久衰减为 idle（与 SESSION_TTL 相等，到点一并清理）
 SESSION_TTL = 30 * 60   # 僵尸会话超时清理（终端被强杀时兜底）
 IDLE_EXIT = 60 * 60     # 聚合表空后多久自动退出
 TICK = 1.0              # 守护进程主循环节拍
