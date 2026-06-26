@@ -18,7 +18,7 @@
     ],
     "Notification": [
       {
-        "matcher": "",
+        "matcher": "permission_prompt|elicitation_dialog",
         "hooks": [
           { "type": "command", "command": "python3", "args": ["${CLAUDE_PLUGIN_ROOT}/bridge/buddyctl.py", "confirm"], "async": true, "timeout": 5 }
         ]
