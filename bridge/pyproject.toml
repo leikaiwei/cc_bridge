@@ -1,0 +1,11 @@
+[project]
+name = "cc-bridge"
+version = "0.1.0"
+description = "Claude Code 会话状态 → ESP32 BLE 桥接守护进程"
+requires-python = ">=3.10"
+dependencies = [
+    "bleak>=0.22.0",
+]
+
+[tool.uv]
+package = false  # 只是一组脚本，不作为包构建

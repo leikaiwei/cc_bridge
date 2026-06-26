@@ -1,0 +1,11 @@
+{
+  "name": "claude-code-bridge-kelvin",
+  "displayName": "Claude Code Bridge (Kelvin)",
+  "version": "0.1.0",
+  "description": "把 Claude Code 会话状态通过 BLE 同步到 ESP32 RGB 灯",
+  "author": {
+    "name": "Kelvin"
+  },
+  "repository": "https://github.com/leikaiwei/cc_bridge",
+  "license": "MIT"
+}

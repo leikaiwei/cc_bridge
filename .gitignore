@@ -1,0 +1,6 @@
+# Python venv 与缓存（平台相关，不进 git）
+bridge/.venv/
+**/__pycache__/
+*.pyc
+
+# 注意：bridge/uv.lock 要提交，锁定依赖版本保证多机一致

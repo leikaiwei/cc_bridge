@@ -1,0 +1,13 @@
+{
+  "name": "cc_bridge",
+  "owner": {
+    "name": "Kelvin"
+  },
+  "plugins": [
+    {
+      "name": "claude-code-bridge-kelvin",
+      "source": "./",
+      "description": "把 Claude Code 会话状态通过 BLE 同步到 ESP32 RGB 灯"
+    }
+  ]
+}
