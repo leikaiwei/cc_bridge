@@ -24,6 +24,14 @@
         ]
       }
     ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          { "type": "command", "command": "python3", "args": ["${CLAUDE_PLUGIN_ROOT}/bridge/buddyctl.py", "working"], "async": true, "timeout": 5 }
+        ]
+      }
+    ],
     "Stop": [
       {
         "matcher": "",
