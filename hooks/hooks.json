@@ -40,6 +40,14 @@
         ]
       }
     ],
+    "SubagentStop": [
+      {
+        "matcher": "",
+        "hooks": [
+          { "type": "command", "command": "python3", "args": ["${CLAUDE_PLUGIN_ROOT}/bridge/buddyctl.py", "done"], "async": true, "timeout": 5 }
+        ]
+      }
+    ],
     "StopFailure": [
       {
         "matcher": "",

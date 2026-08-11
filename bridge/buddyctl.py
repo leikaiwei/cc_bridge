@@ -44,15 +44,20 @@ def resolve_uv() -> str:
     return "uv"
 
 
-def read_session_id() -> str:
-    """从 hook 传入的 stdin JSON 取 session_id；取不到用 default。"""
+def read_hook_input() -> tuple[str, bool]:
+    """从 hook 传入的 stdin JSON 取 (session_id, 是否来自 subagent)。
+
+    subagent 触发的事件会额外带 agent_id 字段，主 agent 的事件没有。
+    据此区分来源：subagent 的收尾不代表整个会话收尾。
+    """
     try:
         data = sys.stdin.read()
         if data:
-            return json.loads(data).get("session_id") or "default"
+            d = json.loads(data)
+            return (d.get("session_id") or "default", bool(d.get("agent_id")))
     except Exception:
         pass
-    return "default"
+    return "default", False
 
 
 def send(sid: str, state: str) -> bool:
@@ -112,7 +117,13 @@ def spawn_bridge() -> None:
 
 def main() -> None:
     state = sys.argv[1] if len(sys.argv) > 1 else "idle"
-    sid = read_session_id()
+    sid, from_subagent = read_hook_input()
+
+    # subagent 结束不等于会话结束：主 agent 很可能还在干活，报 done 会提前变绿。
+    # 只把它当成一次"还活着"的续报，把 working 的衰减计时器推后，
+    # 真正的收尾交给主 agent 的 Stop。
+    if state == "done" and from_subagent:
+        state = "working"
 
     if send(sid, state):
         return  # 常态：bridge 在跑，发完即退
