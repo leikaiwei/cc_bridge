@@ -18,10 +18,15 @@ APP_PATH = DATA_DIR / "CCBridge.app"
 DONE_DECAY = 30 * 60    # done 状态多久衰减为 idle（与 SESSION_TTL 相等，到点一并清理）
 SESSION_TTL = 30 * 60   # 僵尸会话超时清理（终端被强杀时兜底）
 # working 多久没续报就当它已经不在干活了，衰减为 done。
-# 干活时 PostToolUse 会持续续报，正常不会触发；只有这些"没有收尾事件"的情况才会：
-# Esc 打断（Stop 不触发）、subagent 结束（只发 SubagentStop）、终端被强杀、async hook 乱序。
-# 取 90 秒：比单次工具调用的常见间隔宽裕，又远小于原来要等的 30 分钟 SESSION_TTL。
-WORKING_DECAY = 90
+# 每次上报(UserPromptSubmit/PostToolUse/SubagentStop)都会刷新这个时刻，
+# 所以阈值只需盖住"两次上报之间的最大间隔"，也就是单个工具调用本身能跑多久——
+# 不是这一轮总耗时(工具接连调用时, 间隔本来就很短)。
+# 取 10 分钟：盖住绝大多数工具(WebFetch、普通 Agent 调用), 又远小于原来要等的
+# 30 分钟 SESSION_TTL。仍有残留风险：单个工具本身跑得比 10 分钟还久时
+# (比如超长测试套件、超慢后台 Agent), 执行期间没有任何 hook 触发, 会被误判
+# 直到它完成补报——这是 hook 只在完成时触发、执行中无心跳的本质限制, 调阈值只能
+# 缩小误判面, 不能消除。
+WORKING_DECAY = 10 * 60
 IDLE_EXIT = 60 * 60     # 聚合表空后多久自动退出
 TICK = 1.0              # 守护进程主循环节拍
 
