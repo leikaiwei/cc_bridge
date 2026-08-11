@@ -75,6 +75,11 @@ class Sessions:
             eff = code
             if code == protocol.STATE_DONE and now - ts > config.DONE_DECAY:
                 eff = protocol.STATE_IDLE
+            # working 久不续报 → 当作已收尾, 降为 done。
+            # 覆盖 Esc 打断 / subagent 结束 / 终端被强杀 / async hook 乱序这几种
+            # 拿不到收尾事件的情况, 避免灯一直卡在橙色直到 SESSION_TTL。
+            elif code == protocol.STATE_WORKING and now - ts > config.WORKING_DECAY:
+                eff = protocol.STATE_DONE
             best = max(best, eff)
         return best
 
