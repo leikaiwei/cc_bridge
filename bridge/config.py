@@ -14,6 +14,8 @@ LOG_PATH = DATA_DIR / "bridge.log"
 # 承载 bridge 的 .app（声明蓝牙用途）：经它启动才能拿到 BLE 的 TCC 授权，详见 macapp.py
 APP_PATH = DATA_DIR / "CCBridge.app"
 
+STATE_PATH = DATA_DIR / "sessions.json"   # 会话表落盘, 供 bridge 重启后恢复(见 bridge.py)
+
 # 时长（秒）
 DONE_DECAY = 30 * 60    # done 状态多久衰减为 idle（与 SESSION_TTL 相等，到点一并清理）
 SESSION_TTL = 30 * 60   # 僵尸会话超时清理（终端被强杀时兜底）

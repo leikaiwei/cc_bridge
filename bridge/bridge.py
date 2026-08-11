@@ -43,32 +43,76 @@ def acquire_lock() -> Optional[TextIO]:
 
 
 class Sessions:
-    """各会话状态表与聚合逻辑。时间一律用单调时钟。"""
+    """各会话状态表与聚合逻辑。内存里时间一律用单调时钟, 落盘时换算成挂钟时间。
+
+    背景: bridge 每次升级都要重启进程, 而 monotonic 时钟在重启后归零、
+    不可跨进程比较。之前表是纯内存的, 重启即清空——哪怕某个会话正等着用户
+    在 confirm(需确认)上做选择, 灯也会瞬间被清空重新聚合, 状态凭空丢失。
+    落盘用挂钟时间(time.time())做媒介, 读回时按"当前挂钟时间相对存盘时刻
+    过去了多久"换算回本进程的单调时钟坐标, 这样 aggregate() 的衰减判断
+    (WORKING_DECAY/SESSION_TTL 等)跨重启也是连续的, 不会被重置。
+    """
 
     def __init__(self) -> None:
-        self.table: dict[str, tuple[int, float]] = {}  # session_id -> (状态码, 更新时刻)
+        self.table: dict[str, tuple[int, float]] = {}  # session_id -> (状态码, 更新时刻/单调)
         self.last_report = time.monotonic()
+        self._load()
+
+    def _load(self) -> None:
+        """启动时从磁盘恢复会话表, 换算成本进程的单调时钟坐标。"""
+        try:
+            raw = json.loads(config.STATE_PATH.read_text())
+        except (OSError, ValueError):
+            return  # 文件不存在/损坏都视为空表, 不阻塞启动
+        if not isinstance(raw, dict):
+            return
+        now_mono, now_wall = time.monotonic(), time.time()
+        for sid, entry in raw.items():
+            try:
+                code, wall_ts = entry
+                code, wall_ts = int(code), float(wall_ts)
+            except (TypeError, ValueError):
+                continue  # 单条记录格式错误跳过, 不因一条坏数据丢全部
+            age = now_wall - wall_ts          # 存盘后经过的挂钟时长
+            if age > config.SESSION_TTL:      # 重启期间已经僵尸太久, 不必恢复
+                continue
+            self.table[sid] = (code, now_mono - age)
+
+    def _save(self) -> None:
+        """把当前表换算成挂钟时间写盘。原子写, 避免半截文件。"""
+        now_mono, now_wall = time.monotonic(), time.time()
+        raw = {sid: (code, now_wall - (now_mono - ts)) for sid, (code, ts) in self.table.items()}
+        tmp = config.STATE_PATH.with_suffix(".tmp")
+        try:
+            tmp.write_text(json.dumps(raw))
+            tmp.replace(config.STATE_PATH)
+        except OSError as e:
+            logging.warning("会话表落盘失败: %s", e)
 
     def update(self, sid: str, state: str) -> None:
         now = time.monotonic()
         self.last_report = now
         if state == protocol.STATE_END:   # 会话结束，移除
             self.table.pop(sid, None)
+            self._save()
             return
         code = protocol.STATE_BY_NAME.get(state)
         if code is None:
             logging.warning("未知状态: %r", state)
             return
         self.table[sid] = (code, now)
+        self._save()
 
     def aggregate(self) -> int:
         """清理僵尸会话，返回当前应显示的状态码(取最高优先级)。"""
         now = time.monotonic()
         best = protocol.STATE_IDLE
+        expired = False
         for sid in list(self.table):   # list() 因为循环内会删表
             code, ts = self.table[sid]
             if now - ts > config.SESSION_TTL:   # 超时未更新，剔除
                 del self.table[sid]
+                expired = True
                 logging.info("清理僵尸会话: %s", sid)
                 continue
             # done 显示数秒后衰减为空闲；error 不衰减(锁存到该会话下次上报)
@@ -81,6 +125,8 @@ class Sessions:
             elif code == protocol.STATE_WORKING and now - ts > config.WORKING_DECAY:
                 eff = protocol.STATE_DONE
             best = max(best, eff)
+        if expired:
+            self._save()   # 清理结果也落盘, 否则僵尸重启后会复活
         return best
 
 
