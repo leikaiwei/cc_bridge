@@ -4,7 +4,7 @@
 - Unix socket server 接收 buddyctl 上报的 {session_id, state}
 - 聚合：取所有存活会话里优先级最高的状态
 - done 衰减、error 锁存(不衰减)、僵尸会话 TTL 清理、空闲超时自退
-- bleak 维持与 ESP32 的 BLE 长连接，状态变化时写 1 字节
+- bleak 同时维持与所有同名 ESP32 的 BLE 长连接，状态变化时给每块写 1 字节
 """
 import asyncio
 import fcntl
@@ -130,56 +130,67 @@ class Sessions:
         return best
 
 
+def _is_ours(ad) -> bool:
+    """按设备名或广播里的 service UUID 认出自家 ESP32。"""
+    uuids = [u.lower() for u in (ad.service_uuids or [])]
+    return ad.local_name == protocol.DEVICE_NAME or protocol.SERVICE_UUID.lower() in uuids
+
+
+def _log_ble_error(where: str, e: Exception) -> None:
+    # 蓝牙未授权：提示去系统设置勾选 CC Bridge（理论上经 .app 启动会自动弹窗授权）
+    if "not authorized" in str(e).lower() or "unauthorized" in str(e).lower():
+        logging.error(
+            "蓝牙未授权。请到「系统设置 → 隐私与安全性 → 蓝牙」勾选 CC Bridge 后重试"
+        )
+    else:
+        logging.warning("BLE 异常 [%s]: %r", where, e)
+
+
 class BleManager:
-    """维持与 ESP32 的 BLE 连接，target 变化时写入；断线自动退避重连。"""
+    """同时连接所有同名 ESP32：单一扫描循环发现设备，每块一个独立连接任务。
+
+    target 由 ticker 统一设置、所有设备共用；各设备各记已写入值，一块断开或异常不影响其他块。
+    断线后该设备的任务结束，下一轮扫描再次发现即重连（扫描周期即重连节流）。
+    """
 
     def __init__(self) -> None:
         self.target = protocol.STATE_IDLE
-        self._written: Optional[int] = None
+        self._conns: dict[str, asyncio.Task] = {}   # 地址 -> 该设备的连接任务
 
     async def run(self) -> None:
-        backoff = 1
+        # 同一时间只开一个 BleakScanner；周期重扫，让后上电/重启的设备自动加入
         while True:
             try:
-                await self._serve()
-                backoff = 1   # 正常断开(如对端重启)后快速重连
+                found = await BleakScanner.discover(
+                    timeout=config.SCAN_TIMEOUT, return_adv=True
+                )
+                for addr, (dev, ad) in found.items():
+                    if addr not in self._conns and _is_ours(ad):
+                        self._conns[addr] = asyncio.create_task(self._serve(dev))
             except Exception as e:
-                # 蓝牙未授权：提示去系统设置勾选 CC Bridge（理论上经 .app 启动会自动弹窗授权）
-                if "not authorized" in str(e).lower() or "unauthorized" in str(e).lower():
-                    logging.error(
-                        "蓝牙未授权。请到「系统设置 → 隐私与安全性 → 蓝牙」勾选 CC Bridge 后重试"
-                    )
-                else:
-                    logging.warning("BLE 异常: %s", e)
-                backoff = min(backoff * 2, 30)
-            await asyncio.sleep(backoff)
+                _log_ble_error("扫描", e)
+            await asyncio.sleep(config.SCAN_INTERVAL)
 
-    async def _find_device(self):
-        # 先按设备名找，找不到再按 service UUID 兜底
-        dev = await BleakScanner.find_device_by_name(protocol.DEVICE_NAME, timeout=10)
-        if dev is None:
-            dev = await BleakScanner.find_device_by_filter(
-                lambda d, ad: protocol.SERVICE_UUID.lower()
-                in [u.lower() for u in (ad.service_uuids or [])],
-                timeout=10,
-            )
-        return dev
-
-    async def _serve(self) -> None:
-        dev = await self._find_device()
-        if dev is None:
-            raise RuntimeError("未发现 ESP32 设备")
-        async with BleakClient(dev) as client:
-            logging.info("BLE 已连接: %s", dev.address)
-            self._written = None   # 重连后强制重发一次当前状态
-            while client.is_connected:
-                if self.target != self._written:
-                    await client.write_gatt_char(
-                        protocol.CHAR_UUID, bytes([self.target]), response=True
-                    )
-                    self._written = self.target
-                    logging.info("写状态码 %d", self.target)
-                await asyncio.sleep(0.2)
+    async def _serve(self, dev) -> None:
+        """维持单个设备的连接：连上先写一次当前 target，之后变化即写；断开或异常即结束。"""
+        try:
+            async with BleakClient(dev) as client:
+                logging.info("BLE 已连接: %s", dev.address)
+                written: Optional[int] = None   # 新连上强制写一次当前状态
+                while client.is_connected:
+                    target = self.target
+                    if target != written:
+                        await client.write_gatt_char(
+                            protocol.CHAR_UUID, bytes([target]), response=True
+                        )
+                        written = target
+                        logging.info("[%s] 写状态码 %d", dev.address, target)
+                    await asyncio.sleep(0.2)
+            logging.info("BLE 已断开: %s", dev.address)
+        except Exception as e:
+            _log_ble_error(dev.address, e)
+        finally:
+            del self._conns[dev.address]
 
 
 async def handle_client(

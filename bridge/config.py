@@ -31,6 +31,8 @@ SESSION_TTL = 30 * 60   # 僵尸会话超时清理（终端被强杀时兜底）
 WORKING_DECAY = 10 * 60
 IDLE_EXIT = 60 * 60     # 聚合表空后多久自动退出
 TICK = 1.0              # 守护进程主循环节拍
+SCAN_TIMEOUT = 5.0      # BLE 每轮扫描时长
+SCAN_INTERVAL = 5.0     # 两轮扫描间隔（新设备加入 / 断线重连最多等约一个周期）
 
 # buddyctl 连接守护进程的超时
 CONNECT_TIMEOUT = 0.5

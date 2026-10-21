@@ -18,7 +18,7 @@
 ## 工作原理（简述）
 
 - **buddyctl.py**：每个 hook 触发时跑一下，纯标准库、瞬起瞬灭，把 `{会话id, 状态}` 发给后台守护进程。
-- **bridge.py**：后台单例守护进程（脱离终端，靠文件锁保证全局唯一），聚合各会话状态，通过 BLE 长连接写给 ESP32。
+- **bridge.py**：后台单例守护进程（脱离终端，靠文件锁保证全局唯一），聚合各会话状态，通过 BLE 长连接写给范围内所有同名 ESP32。
 - **懒启动**：第一个会话的 hook 会自动构建并经 `CC Bridge.app` 拉起守护进程（详见下文「macOS 蓝牙授权」），无需手动开服务。
 - **自动退出**：所有会话结束、持续 60 分钟无活动后，守护进程自动断开 BLE 并退出（时长见 `bridge/config.py` 的 `IDLE_EXIT`）。
 
@@ -64,7 +64,7 @@ macOS 下裸 Python 进程访问蓝牙会被系统隐私机制（TCC）直接终
 
 ## ESP32 固件
 
-固件源码独立维护（NimBLE GATT server + WS2812 RGB）。BLE 设备名与 UUID 写死在 `bridge/protocol.py`，两端必须一致。烧录：
+固件源码独立维护（NimBLE GATT server + WS2812 RGB）。BLE 设备名与 UUID 写死在 `bridge/protocol.py`，两端必须一致。支持多块同名设备同时同步（比如舵机板 + 圆屏板），bridge 会连上范围内所有匹配设备、把状态写给每一块，后上电的板子约 10 秒内自动加入。烧录：
 
 ```bash
 ~/.platformio/penv/bin/pio run -t upload
