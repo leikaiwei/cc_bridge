@@ -1,7 +1,7 @@
 {
   "name": "claude-code-bridge-kelvin",
   "displayName": "Claude Code Bridge (Kelvin)",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "把 Claude Code 会话状态通过 BLE 同步到 ESP32 RGB 灯",
   "author": {
     "name": "Kelvin"
